@@ -4,51 +4,127 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <!-- Primary Meta Tags -->
-    <title>Agent Deck - Terminal Session Manager for AI Coding Agents</title>
-    <meta name="title" content="Agent Deck - Terminal Session Manager for AI Coding Agents">
-    <meta name="description" content="Manage multiple AI coding agents like Claude Code, Gemini CLI, Aider, and Codex from a single terminal dashboard. Smart status detection, project organization, and instant session switching.">
-    <meta name="keywords" content="AI coding agent, terminal manager, Claude Code, Gemini CLI, Aider, Codex, tmux, terminal multiplexer, developer tools, CLI tool, TUI, session manager">
+    <!-- Primary Meta Tags - Problem-focused for search discovery -->
+    <title>Agent Deck - Manage Multiple Claude Code, Aider & AI Coding Sessions</title>
+    <meta name="title" content="Agent Deck - Manage Multiple Claude Code, Aider & AI Coding Sessions">
+    <meta name="description" content="Tired of juggling multiple AI coding agent terminals? Agent Deck is a free TUI dashboard to manage Claude Code, Gemini CLI, Aider, and Codex sessions. Fork Claude conversations, smart status detection, instant switching. Open source.">
+
+    <!-- Problem-based keywords for search discovery -->
+    <meta name="keywords" content="manage multiple Claude Code sessions, Claude Code session manager, switch between AI coding agents, tmux AI agents, Claude Code fork conversation, parallel AI coding sessions, Aider session manager, Gemini CLI manager, multiple terminal AI agents, AI pair programming dashboard, Claude Code TUI, vibe coding tools, AI coding workflow, developer productivity AI, terminal multiplexer AI agents, manage coding assistants">
+
     <meta name="author" content="Ashesh Goplani">
-    <meta name="robots" content="index, follow">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
     <link rel="canonical" href="https://asheshgoplani.github.io/agent-deck/">
+
+    <!-- Additional SEO meta tags -->
+    <meta name="theme-color" content="#1a1b26">
+    <meta name="application-name" content="Agent Deck">
+    <meta name="generator" content="Agent Deck">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://asheshgoplani.github.io/agent-deck/">
-    <meta property="og:title" content="Agent Deck - Terminal Session Manager for AI Coding Agents">
-    <meta property="og:description" content="Manage multiple AI coding agents like Claude Code, Gemini CLI, Aider, and Codex from a single terminal dashboard.">
-    <meta property="og:image" content="https://asheshgoplani.github.io/agent-deck/og-image.png">
+    <meta property="og:title" content="Agent Deck - Stop Juggling AI Coding Agent Terminals">
+    <meta property="og:description" content="Free TUI dashboard to manage Claude Code, Aider, Gemini CLI sessions. Fork Claude conversations, smart status detection, instant switching between projects.">
+    <meta property="og:image" content="https://asheshgoplani.github.io/agent-deck/og-image.svg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="Agent Deck - Terminal session manager showing status indicators for AI coding agents">
     <meta property="og:site_name" content="Agent Deck">
+    <meta property="og:locale" content="en_US">
 
     <!-- Twitter -->
-    <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="https://asheshgoplani.github.io/agent-deck/">
-    <meta property="twitter:title" content="Agent Deck - Terminal Session Manager for AI Coding Agents">
-    <meta property="twitter:description" content="Manage multiple AI coding agents like Claude Code, Gemini CLI, Aider, and Codex from a single terminal dashboard.">
-    <meta property="twitter:image" content="https://asheshgoplani.github.io/agent-deck/og-image.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="https://asheshgoplani.github.io/agent-deck/">
+    <meta name="twitter:title" content="Agent Deck - Stop Juggling AI Coding Agent Terminals">
+    <meta name="twitter:description" content="Free TUI dashboard to manage Claude Code, Aider, Gemini CLI sessions. Fork Claude conversations, smart status detection.">
+    <meta name="twitter:image" content="https://asheshgoplani.github.io/agent-deck/og-image.svg">
+    <meta name="twitter:creator" content="@AsheshGoplani">
 
     <!-- Favicon - Status Grid Logo -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 32'%3E%3Crect fill='%231a1b26' width='48' height='32' rx='4'/%3E%3Ccircle cx='10' cy='16' r='5' fill='%239ece6a'/%3E%3Ccircle cx='24' cy='16' r='5' fill='%23e0af68'/%3E%3Ccircle cx='38' cy='16' r='5' fill='%23565f89'/%3E%3C/svg%3E">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 32'%3E%3Crect fill='%231a1b26' width='48' height='32' rx='4'/%3E%3Ccircle cx='10' cy='16' r='5' fill='%239ece6a'/%3E%3Ccircle cx='24' cy='16' r='5' fill='%23e0af68'/%3E%3Ccircle cx='38' cy='16' r='5' fill='%23565f89'/%3E%3C/svg%3E">
 
-    <!-- Schema.org structured data -->
+    <!-- Schema.org structured data - Software Application -->
     <script type="application/ld+json">
     {
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
         "name": "Agent Deck",
-        "description": "Terminal session manager for AI coding agents. Manage Claude Code, Gemini CLI, Aider, Codex and more.",
+        "alternateName": ["agent-deck", "AgentDeck"],
+        "description": "Terminal session manager for AI coding agents. Manage multiple Claude Code, Gemini CLI, Aider, and Codex sessions from a single dashboard with smart status detection and session forking.",
         "applicationCategory": "DeveloperApplication",
-        "operatingSystem": "macOS, Linux",
+        "applicationSubCategory": "Terminal Utility",
+        "operatingSystem": ["macOS", "Linux", "Windows (WSL)"],
+        "softwareVersion": "0.4.1",
+        "releaseNotes": "https://github.com/asheshgoplani/agent-deck/releases",
+        "downloadUrl": "https://github.com/asheshgoplani/agent-deck/releases/latest",
+        "installUrl": "https://github.com/asheshgoplani/agent-deck#installation",
+        "screenshot": "https://asheshgoplani.github.io/agent-deck/og-image.svg",
+        "softwareHelp": "https://github.com/asheshgoplani/agent-deck#usage",
         "offers": {
             "@type": "Offer",
             "price": "0",
-            "priceCurrency": "USD"
+            "priceCurrency": "USD",
+            "availability": "https://schema.org/InStock"
         },
         "author": {
             "@type": "Person",
+            "name": "Ashesh Goplani",
+            "url": "https://github.com/asheshgoplani"
+        },
+        "publisher": {
+            "@type": "Person",
             "name": "Ashesh Goplani"
-        }
+        },
+        "license": "https://opensource.org/licenses/MIT",
+        "isAccessibleForFree": true,
+        "keywords": ["Claude Code", "Aider", "Gemini CLI", "Codex", "AI coding", "terminal manager", "tmux", "TUI", "session manager"],
+        "programmingLanguage": "Go",
+        "runtimePlatform": "tmux"
+    }
+    </script>
+
+    <!-- Schema.org FAQ for common questions - helps with rich snippets -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+            {
+                "@type": "Question",
+                "name": "How do I manage multiple Claude Code sessions?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Agent Deck provides a terminal dashboard to manage multiple Claude Code sessions. You can see all sessions at a glance with status indicators (running, waiting, idle), switch between them instantly with keyboard shortcuts, and even fork conversations to explore different approaches in parallel."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Can I use Claude Code and Aider together?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Yes! Agent Deck is tool-agnostic and supports Claude Code, Aider, Gemini CLI, Codex, and any terminal program. You can manage sessions from different AI coding tools in the same dashboard, organized by project."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "What is Claude Code session forking?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Session forking allows you to create a branch of an existing Claude conversation. The forked session inherits the full conversation context from the parent, letting you explore different implementation approaches without losing your original work. Press 'f' to fork any Claude session."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Is Agent Deck free and open source?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Yes, Agent Deck is completely free and open source under the MIT license. You can install it via Homebrew, curl script, or build from source on GitHub."
+                }
+            }
+        ]
     }
     </script>
 
