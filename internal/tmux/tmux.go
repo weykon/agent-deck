@@ -394,6 +394,29 @@ func generateShortID() string {
 	return hex.EncodeToString(b)
 }
 
+// SetEnvironment sets an environment variable for this tmux session
+func (s *Session) SetEnvironment(key, value string) error {
+	cmd := exec.Command("tmux", "set-environment", "-t", s.Name, key, value)
+	return cmd.Run()
+}
+
+// GetEnvironment gets an environment variable from this tmux session
+// Returns the value or error if not found
+func (s *Session) GetEnvironment(key string) (string, error) {
+	cmd := exec.Command("tmux", "show-environment", "-t", s.Name, key)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("variable not found or session doesn't exist: %s", key)
+	}
+	// Output format: "KEY=value\n"
+	line := strings.TrimSpace(string(output))
+	prefix := key + "="
+	if strings.HasPrefix(line, prefix) {
+		return strings.TrimPrefix(line, prefix), nil
+	}
+	return "", fmt.Errorf("variable not found: %s", key)
+}
+
 // sanitizeName converts a display name to a valid tmux session name
 func sanitizeName(name string) string {
 	// Replace spaces and special characters with hyphens

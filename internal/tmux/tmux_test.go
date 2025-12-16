@@ -1801,3 +1801,53 @@ func TestStartEnablesPipePaneLogging(t *testing.T) {
 	// Cleanup
 	os.Remove(logFile)
 }
+
+func TestSession_SetAndGetEnvironment(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+
+	// Create a test session
+	sess := NewSession("env-test", "/tmp")
+
+	// Start the session (required for environment to work)
+	err := sess.Start("")
+	if err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
+	defer sess.Kill()
+
+	// Test setting environment
+	err = sess.SetEnvironment("TEST_VAR", "test_value_123")
+	if err != nil {
+		t.Fatalf("SetEnvironment failed: %v", err)
+	}
+
+	// Test getting environment
+	value, err := sess.GetEnvironment("TEST_VAR")
+	if err != nil {
+		t.Fatalf("GetEnvironment failed: %v", err)
+	}
+
+	if value != "test_value_123" {
+		t.Errorf("GetEnvironment = %q, want %q", value, "test_value_123")
+	}
+}
+
+func TestSession_GetEnvironment_NotFound(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+
+	sess := NewSession("env-test-notfound", "/tmp")
+	err := sess.Start("")
+	if err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
+	defer sess.Kill()
+
+	_, err = sess.GetEnvironment("NONEXISTENT_VAR")
+	if err == nil {
+		t.Error("GetEnvironment should return error for nonexistent variable")
+	}
+}
