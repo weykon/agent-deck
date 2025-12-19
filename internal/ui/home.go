@@ -110,6 +110,7 @@ type Home struct {
 
 	// Launching animation state (for newly created sessions)
 	launchingSessions map[string]time.Time // sessionID -> creation time
+	resumingSessions  map[string]time.Time // sessionID -> resume time (for restart/resume)
 	animationFrame    int                  // Current frame for spinner animation
 
 	// Context for cleanup
@@ -200,6 +201,7 @@ func NewHomeWithProfile(profile string) *Home {
 		flatItems:         []session.Item{},
 		previewCache:      make(map[string]string),
 		launchingSessions: make(map[string]time.Time),
+		resumingSessions:  make(map[string]time.Time),
 		statusTrigger:     make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
 		statusWorkerDone:  make(chan struct{}),
 	}
@@ -730,7 +732,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update animation frame for launching spinner (8 frames, cycles every tick)
 		h.animationFrame = (h.animationFrame + 1) % 8
 
-		// Clean up expired launching sessions
+		// Clean up expired launching/resuming sessions
 		// For Claude: remove after 20s timeout (animation shows for ~6-15s)
 		// For others: remove after 5s timeout
 		const claudeTimeout = 20 * time.Second
@@ -758,6 +760,31 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if time.Since(createdAt) > timeout {
 				delete(h.launchingSessions, sessionID)
+			}
+		}
+		// Clean up expired resuming sessions (same timeout logic)
+		for sessionID, resumedAt := range h.resumingSessions {
+			// Find the instance
+			var inst *session.Instance
+			for _, i := range h.instances {
+				if i.ID == sessionID {
+					inst = i
+					break
+				}
+			}
+			if inst == nil {
+				// Session was deleted, clean up
+				delete(h.resumingSessions, sessionID)
+				continue
+			}
+
+			// Use appropriate timeout based on tool
+			timeout := defaultTimeout
+			if inst.Tool == "claude" {
+				timeout = claudeTimeout
+			}
+			if time.Since(resumedAt) > timeout {
+				delete(h.resumingSessions, sessionID)
 			}
 		}
 		h.instancesMu.RUnlock()
@@ -1333,6 +1360,8 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession && item.Session != nil {
 				if item.Session.CanRestart() {
+					// Track as resuming for animation (before async call starts)
+					h.resumingSessions[item.Session.ID] = time.Now()
 					return h, h.restartSession(item.Session)
 				}
 			}
@@ -2289,32 +2318,61 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	b.WriteString("\n")
 }
 
-// renderLaunchingState renders the animated launching indicator for new sessions
+// renderLaunchingState renders the animated launching/resuming indicator for sessions
 func (h *Home) renderLaunchingState(inst *session.Instance, width int) string {
 	var b strings.Builder
+
+	// Check if this is a resume operation (vs new launch)
+	_, isResuming := h.resumingSessions[inst.ID]
 
 	// Braille spinner frames - creates smooth rotation effect
 	spinnerFrames := []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
 	spinner := spinnerFrames[h.animationFrame]
 
 	// Tool-specific messaging
-	var toolName, toolDesc string
+	var toolName, toolDesc, actionVerb string
+	if isResuming {
+		actionVerb = "Resuming"
+	} else {
+		actionVerb = "Launching"
+	}
+
 	switch inst.Tool {
 	case "claude":
 		toolName = "Claude Code"
-		toolDesc = "Starting Claude session..."
+		if isResuming {
+			toolDesc = "Resuming Claude session..."
+		} else {
+			toolDesc = "Starting Claude session..."
+		}
 	case "gemini":
 		toolName = "Gemini"
-		toolDesc = "Connecting to Gemini..."
+		if isResuming {
+			toolDesc = "Resuming Gemini session..."
+		} else {
+			toolDesc = "Connecting to Gemini..."
+		}
 	case "aider":
 		toolName = "Aider"
-		toolDesc = "Starting Aider..."
+		if isResuming {
+			toolDesc = "Resuming Aider session..."
+		} else {
+			toolDesc = "Starting Aider..."
+		}
 	case "codex":
 		toolName = "Codex"
-		toolDesc = "Starting Codex..."
+		if isResuming {
+			toolDesc = "Resuming Codex session..."
+		} else {
+			toolDesc = "Starting Codex..."
+		}
 	default:
 		toolName = "Shell"
-		toolDesc = "Launching shell session..."
+		if isResuming {
+			toolDesc = "Resuming shell session..."
+		} else {
+			toolDesc = "Launching shell session..."
+		}
 	}
 
 	// Centered layout
@@ -2330,11 +2388,11 @@ func (h *Home) renderLaunchingState(inst *session.Instance, width int) string {
 	b.WriteString(centerStyle.Render(spinnerLine))
 	b.WriteString("\n\n")
 
-	// Tool name
+	// Tool name with action verb
 	toolStyle := lipgloss.NewStyle().
 		Foreground(ColorPurple).
 		Bold(true)
-	b.WriteString(centerStyle.Render(toolStyle.Render("Launching " + toolName)))
+	b.WriteString(centerStyle.Render(toolStyle.Render(actionVerb + " " + toolName)))
 	b.WriteString("\n\n")
 
 	// Description
@@ -2442,50 +2500,49 @@ func (h *Home) renderPreviewPane(width, height int) string {
 
 	// Claude-specific info (session ID and MCPs)
 	if selected.Tool == "claude" {
-		// Connection status with session ID
+		// Section divider for Claude info
+		claudeHeader := renderSectionDivider("Claude", width-4)
+		b.WriteString(claudeHeader)
+		b.WriteString("\n")
+
+		labelStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+		valueStyle := lipgloss.NewStyle().Foreground(ColorText)
+
+		// Status line
 		if selected.ClaudeSessionID != "" {
-			connStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
-			idStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+			statusStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
+			b.WriteString(labelStyle.Render("Status:  "))
+			b.WriteString(statusStyle.Render("● Connected"))
+			b.WriteString("\n")
 
-			// Truncate session ID for display (show first 8 chars)
-			shortID := selected.ClaudeSessionID
-			if len(shortID) > 8 {
-				shortID = shortID[:8] + "..."
-			}
-
-			b.WriteString(connStyle.Render("✓ Connected"))
-			b.WriteString(idStyle.Render(" (" + shortID + ")"))
+			// Full session ID on its own line
+			b.WriteString(labelStyle.Render("Session: "))
+			b.WriteString(valueStyle.Render(selected.ClaudeSessionID))
 			b.WriteString("\n")
 		} else {
-			disconnStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
-			b.WriteString(disconnStyle.Render("○ Not connected"))
+			statusStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+			b.WriteString(labelStyle.Render("Status:  "))
+			b.WriteString(statusStyle.Render("○ Not connected"))
 			b.WriteString("\n")
 		}
 
-		// MCP servers
+		// MCP servers - compact format with source indicators
 		if mcpInfo := selected.GetMCPInfo(); mcpInfo != nil && mcpInfo.HasAny() {
-			mcpHeaderStyle := lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
-			mcpLabelStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
-			mcpNameStyle := lipgloss.NewStyle().Foreground(ColorText)
+			b.WriteString(labelStyle.Render("MCPs:    "))
 
-			b.WriteString(mcpHeaderStyle.Render("MCPs:"))
+			// Collect all MCPs with source indicators: (g)lobal, (p)roject, (l)ocal
+			var mcpParts []string
+			for _, name := range mcpInfo.Global {
+				mcpParts = append(mcpParts, name+" (g)")
+			}
+			for _, name := range mcpInfo.Project {
+				mcpParts = append(mcpParts, name+" (p)")
+			}
+			for _, name := range mcpInfo.Local {
+				mcpParts = append(mcpParts, name+" (l)")
+			}
+			b.WriteString(valueStyle.Render(strings.Join(mcpParts, ", ")))
 			b.WriteString("\n")
-
-			if len(mcpInfo.Global) > 0 {
-				b.WriteString(mcpLabelStyle.Render("  Global: "))
-				b.WriteString(mcpNameStyle.Render(strings.Join(mcpInfo.Global, ", ")))
-				b.WriteString("\n")
-			}
-			if len(mcpInfo.Project) > 0 {
-				b.WriteString(mcpLabelStyle.Render("  Project: "))
-				b.WriteString(mcpNameStyle.Render(strings.Join(mcpInfo.Project, ", ")))
-				b.WriteString("\n")
-			}
-			if len(mcpInfo.Local) > 0 {
-				b.WriteString(mcpLabelStyle.Render("  Local: "))
-				b.WriteString(mcpNameStyle.Render(strings.Join(mcpInfo.Local, ", ")))
-				b.WriteString("\n")
-			}
 		}
 	}
 	b.WriteString("\n")
@@ -2495,19 +2552,27 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	b.WriteString(termHeader)
 	b.WriteString("\n")
 
-	// Check if this session is still launching (newly created)
+	// Check if this session is launching (newly created) or resuming (restarted)
 	launchTime, isLaunching := h.launchingSessions[selected.ID]
+	resumeTime, isResuming := h.resumingSessions[selected.ID]
 
-	// Determine if we should show launching animation
+	// Determine if we should show animation (launch or resume)
 	// For Claude: show for minimum 6 seconds, then check for ready indicators
 	// For others: show for first 3 seconds after creation
 	showLaunchingAnimation := false
+	var animationStartTime time.Time
 	if isLaunching {
-		timeSinceLaunch := time.Since(launchTime)
+		animationStartTime = launchTime
+	} else if isResuming {
+		animationStartTime = resumeTime
+	}
+
+	if isLaunching || isResuming {
+		timeSinceStart := time.Since(animationStartTime)
 		if selected.Tool == "claude" {
 			// Claude session: show animation for at least 6 seconds
 			minAnimationTime := 6 * time.Second
-			if timeSinceLaunch < minAnimationTime {
+			if timeSinceStart < minAnimationTime {
 				// Always show animation for first 6 seconds
 				showLaunchingAnimation = true
 			} else {
@@ -2521,11 +2586,11 @@ func (h *Home) renderPreviewPane(width, height int) string {
 					strings.Contains(previewContent, "esc to interrupt") ||
 					strings.Contains(previewContent, "⠋") || strings.Contains(previewContent, "⠙") ||
 					strings.Contains(previewContent, "Thinking")
-				showLaunchingAnimation = !claudeReady && timeSinceLaunch < 15*time.Second
+				showLaunchingAnimation = !claudeReady && timeSinceStart < 15*time.Second
 			}
 		} else {
 			// Non-Claude: show animation for first 3 seconds
-			showLaunchingAnimation = timeSinceLaunch < 3*time.Second
+			showLaunchingAnimation = timeSinceStart < 3*time.Second
 		}
 	}
 
