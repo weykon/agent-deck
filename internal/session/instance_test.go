@@ -590,6 +590,27 @@ func TestInstance_GetMCPInfo_Unknown(t *testing.T) {
 	}
 }
 
+func TestInstance_CanFork_Gemini(t *testing.T) {
+	// Test 1: Gemini tool with valid session ID should NOT be forkable
+	// Gemini CLI has NO --fork-session flag (unlike Claude)
+	inst := NewInstanceWithTool("test", "/tmp/test", "gemini")
+	inst.GeminiSessionID = "abc-123-def"
+	inst.GeminiDetectedAt = time.Now()
+
+	if inst.CanFork() {
+		t.Error("CanFork() should be false for Gemini (not supported by Gemini CLI)")
+	}
+
+	// Test 2: Even if ClaudeSessionID were somehow set, Gemini tool should not fork
+	// This tests the explicit tool check
+	inst.ClaudeSessionID = "claude-session-xyz"
+	inst.ClaudeDetectedAt = time.Now()
+
+	if inst.CanFork() {
+		t.Error("CanFork() should be false for Gemini tool even with ClaudeSessionID set")
+	}
+}
+
 func TestParseGeminiLastAssistantMessage(t *testing.T) {
 	// VERIFIED: Actual Gemini session JSON structure
 	sessionJSON := `{

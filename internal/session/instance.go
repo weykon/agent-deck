@@ -1197,12 +1197,17 @@ func (i *Instance) CanRestart() bool {
 	return i.Status == StatusError || i.tmuxSession == nil || !i.tmuxSession.Exists()
 }
 
-// CanFork returns true if this session can be forked (has recent Claude session)
+// CanFork returns true if this session can be forked
 func (i *Instance) CanFork() bool {
+	// Gemini CLI doesn't support forking
+	if i.Tool == "gemini" {
+		return false
+	}
+
+	// Claude sessions can fork if session ID is recent
 	if i.ClaudeSessionID == "" {
 		return false
 	}
-	// Session ID must be detected within last 5 minutes
 	return time.Since(i.ClaudeDetectedAt) < 5*time.Minute
 }
 
