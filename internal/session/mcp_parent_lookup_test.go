@@ -171,7 +171,7 @@ func TestGetMCPInfo_StopsAtFirstMCPJson(t *testing.T) {
 	}()
 	claudeConfig := map[string]interface{}{"mcpServers": map[string]interface{}{}}
 	claudeData, _ := json.MarshalIndent(claudeConfig, "", "  ")
-	os.WriteFile(filepath.Join(tmpClaudeConfig, ".claude.json"), claudeData, 0600)
+	_ = os.WriteFile(filepath.Join(tmpClaudeConfig, ".claude.json"), claudeData, 0600)
 
 	// TEST: Subdir should find project/.mcp.json (closer), NOT root/.mcp.json
 	info := GetMCPInfo(subdirPath)
@@ -232,7 +232,7 @@ func TestGetMCPInfo_NoMCPJson(t *testing.T) {
 	}()
 	claudeConfig := map[string]interface{}{"mcpServers": map[string]interface{}{}}
 	claudeData, _ := json.MarshalIndent(claudeConfig, "", "  ")
-	os.WriteFile(filepath.Join(tmpClaudeConfig, ".claude.json"), claudeData, 0600)
+	_ = os.WriteFile(filepath.Join(tmpClaudeConfig, ".claude.json"), claudeData, 0600)
 
 	info := GetMCPInfo(tmpDir)
 
@@ -274,7 +274,7 @@ func TestGetMCPInfo_RootBoundary(t *testing.T) {
 	}()
 	claudeConfig := map[string]interface{}{"mcpServers": map[string]interface{}{}}
 	claudeData, _ := json.MarshalIndent(claudeConfig, "", "  ")
-	os.WriteFile(filepath.Join(tmpClaudeConfig, ".claude.json"), claudeData, 0600)
+	_ = os.WriteFile(filepath.Join(tmpClaudeConfig, ".claude.json"), claudeData, 0600)
 
 	// Should not panic or infinite loop when reaching root
 	info := GetMCPInfo(deepDir)

@@ -79,7 +79,7 @@ func NewSocketProxy(ctx context.Context, name, command string, args []string, en
 
 func (p *SocketProxy) Start() error {
 	logDir := filepath.Join(os.Getenv("HOME"), ".agent-deck", "logs", "mcppool")
-	os.MkdirAll(logDir, 0755)
+	_ = os.MkdirAll(logDir, 0755)
 	p.logFile = filepath.Join(logDir, fmt.Sprintf("%s_socket.log", p.name))
 
 	logWriter, err := os.Create(p.logFile)
@@ -110,11 +110,11 @@ func (p *SocketProxy) Start() error {
 	}
 
 	log.Printf("Started MCP %s (PID: %d)", p.name, p.mcpProcess.Process.Pid)
-	go io.Copy(p.logWriter, stderr)
+	go func() { _, _ = io.Copy(p.logWriter, stderr) }()
 
 	listener, err := net.Listen("unix", p.socketPath)
 	if err != nil {
-		p.mcpProcess.Process.Kill()
+		_ = p.mcpProcess.Process.Kill()
 		return err
 	}
 	p.listener = listener

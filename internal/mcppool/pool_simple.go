@@ -106,7 +106,7 @@ func (p *Pool) Shutdown() error {
 
 	for name, proxy := range p.proxies {
 		log.Printf("Stopping socket proxy: %s", name)
-		proxy.Stop()
+		_ = proxy.Stop()
 	}
 
 	return nil
