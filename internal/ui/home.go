@@ -3346,6 +3346,8 @@ func (h *Home) renderHelpBar() string {
 			contextTitle = "Session"
 			primaryHints = []string{
 				h.helpKey("Enter", "Attach"),
+				h.helpKey("n", "New"),
+				h.helpKey("g", "Group"),
 				h.helpKey("R", "Restart"),
 			}
 			// Only show fork hints if session has a valid Claude session ID
@@ -3599,13 +3601,13 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 		// Sub-sessions get extra indentation (they're at Level = groupLevel + 2)
 		if item.IsSubSession {
 			// Sub-session: indent for group level, then continuation line for parent
-			// Use treeLine (│) when parent has siblings below, treeEmpty when parent is last
+			// Add leading space so │ aligns with ├ in regular items (both at position 1)
 			groupIndent := strings.Repeat(treeEmpty, item.Level-2)
 			if item.ParentIsLastInGroup {
-				baseIndent = groupIndent + treeEmpty // "  " - parent is last, no continuation needed
+				baseIndent = groupIndent + "  " // 2 spaces - parent is last, no continuation needed
 			} else {
-				// Style the │ character to match tree connectors
-				baseIndent = groupIndent + treeStyle.Render(treeLine)
+				// Style the │ character - leading space aligns │ with ├ above
+				baseIndent = groupIndent + " " + treeStyle.Render("│")
 			}
 		} else {
 			baseIndent = strings.Repeat(treeEmpty, item.Level-1)
@@ -3691,7 +3693,7 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 		// Rebuild baseIndent with selection styling for sub-sessions
 		if item.IsSubSession && !item.ParentIsLastInGroup {
 			groupIndent := strings.Repeat(treeEmpty, item.Level-2)
-			baseIndent = groupIndent + treeStyle.Render(treeLine)
+			baseIndent = groupIndent + " " + treeStyle.Render("│")
 		}
 	}
 

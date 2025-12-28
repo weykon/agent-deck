@@ -2,6 +2,7 @@ package mcppool
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -82,10 +83,61 @@ func (p *Pool) ShouldPool(mcpName string) bool {
 
 func (p *Pool) IsRunning(name string) bool {
 	p.mu.RLock()
-	defer p.mu.RUnlock()
+	proxy, exists := p.proxies[name]
+	if !exists {
+		p.mu.RUnlock()
+		return false
+	}
+
+	// Double-check: verify the socket is actually alive (not just marked as running)
+	if proxy.Status == StatusRunning {
+		if !isSocketAliveCheck(proxy.socketPath) {
+			p.mu.RUnlock()
+			log.Printf("[Pool] ⚠️ %s: marked running but socket is DEAD - attempting restart", name)
+			// Try to restart the proxy
+			if err := p.RestartProxy(name); err != nil {
+				log.Printf("[Pool] ✗ %s: restart failed: %v", name, err)
+				return false
+			}
+			log.Printf("[Pool] ✓ %s: successfully restarted", name)
+			return true
+		}
+		p.mu.RUnlock()
+		return true
+	}
+	p.mu.RUnlock()
+	return false
+}
+
+// RestartProxy stops and restarts a proxy that has died
+func (p *Pool) RestartProxy(name string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	proxy, exists := p.proxies[name]
-	return exists && proxy.Status == StatusRunning
+	if !exists {
+		return fmt.Errorf("proxy %s not found", name)
+	}
+
+	// Stop the old proxy (cleanup)
+	_ = proxy.Stop()
+	delete(p.proxies, name)
+
+	// Remove stale socket
+	os.Remove(proxy.socketPath)
+
+	// Create and start new proxy
+	newProxy, err := NewSocketProxy(p.ctx, name, proxy.command, proxy.args, proxy.env)
+	if err != nil {
+		return fmt.Errorf("failed to create proxy: %w", err)
+	}
+
+	if err := newProxy.Start(); err != nil {
+		return fmt.Errorf("failed to start proxy: %w", err)
+	}
+
+	p.proxies[name] = newProxy
+	return nil
 }
 
 func (p *Pool) GetURL(name string) string {

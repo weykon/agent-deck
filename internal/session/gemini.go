@@ -27,12 +27,20 @@ func GetGeminiConfigDir() string {
 // HashProjectPath generates SHA256 hash of absolute project path
 // This matches Gemini CLI's project hash algorithm for session storage
 // VERIFIED: echo -n "/Users/ashesh" | shasum -a 256
+// NOTE: Must resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
 func HashProjectPath(projectPath string) string {
 	absPath, err := filepath.Abs(projectPath)
 	if err != nil {
 		return ""
 	}
-	hash := sha256.Sum256([]byte(absPath))
+	// Resolve symlinks to match Gemini CLI behavior
+	// macOS: /tmp is symlink to /private/tmp
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		// Fall back to absPath if symlink resolution fails
+		realPath = absPath
+	}
+	hash := sha256.Sum256([]byte(realPath))
 	return hex.EncodeToString(hash[:])
 }
 

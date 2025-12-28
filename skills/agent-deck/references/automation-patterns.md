@@ -1,74 +1,69 @@
-# Automation & Scripting Patterns
+# Automation Patterns
 
-Lightweight guide for automating agent-deck operations.
-
-## JSON Output
-
-All commands support `-json` flag. **Flags must come BEFORE arguments:**
+## Sub-Agent Script (Primary)
 
 ```bash
-# Correct
-agent-deck session show -json my-project
+# Fire and forget (recommended)
+scripts/launch-subagent.sh "Research" "Find info about X" --mcp exa
 
-# Incorrect (flag ignored)
-agent-deck session show my-project -json
+# With blocking wait
+scripts/launch-subagent.sh "Query" "Answer Y" --wait --timeout 120
+
+# Multiple MCPs
+scripts/launch-subagent.sh "Deep Research" "Analyze Z" --mcp exa --mcp firecrawl
 ```
 
-## Common Patterns
+## Manual Sub-Agent Pattern
 
-### Monitor Waiting Sessions
+When script unavailable:
 
 ```bash
-WAITING=$(agent-deck status -json | jq '.waiting')
-if [ "$WAITING" -gt 0 ]; then
-  echo "$WAITING sessions waiting"
-fi
+PARENT=$(agent-deck session current -q)
+PROFILE=$(agent-deck session current --json | jq -r '.profile')
+
+agent-deck -p "$PROFILE" add -t "Task" --parent "$PARENT" -c claude /tmp/task
+agent-deck -p "$PROFILE" session start "Task"
+sleep 10  # Wait for Claude readiness
+agent-deck -p "$PROFILE" session send "Task" "Your prompt"
 ```
 
-### Auto-Start Sessions
+## Check Output
 
 ```bash
-for session in api frontend database; do
-  STATUS=$(agent-deck session show -json "$session" | jq -r '.status')
-  if [ "$STATUS" != "running" ]; then
-    agent-deck session start "$session"
-  fi
+# Check status
+agent-deck session show "Task" | grep Status
+
+# Get response when waiting (◐)
+agent-deck session output "Task"
+```
+
+## Batch Operations
+
+```bash
+# Start multiple sessions
+for name in api frontend backend; do
+  agent-deck session start "$name"
+done
+
+# Attach MCPs to multiple sessions
+for session in proj1 proj2; do
+  agent-deck mcp attach "$session" exa
+  agent-deck session restart "$session"
 done
 ```
 
-### Bulk MCP Attachment
+## JSON Scripting
 
 ```bash
-for mcp in exa github playwright; do
-  agent-deck mcp attach my-project "$mcp"
-done
-agent-deck session restart my-project
+# Get all waiting sessions
+agent-deck list --json | jq -r '.[] | select(.status == "waiting") | .title'
+
+# Count by status
+agent-deck status --json | jq '.running, .waiting, .idle'
 ```
 
-## Exit Codes
+## Warnings
 
-```bash
-0   # Success
-1   # Generic error
-2   # Not found
-```
-
-## Using with jq
-
-```bash
-# Get all session titles
-agent-deck list -json | jq -r '.[].title'
-
-# Get Claude sessions only
-agent-deck list -json | jq -r '.[] | select(.tool == "claude") | .title'
-
-# Count sessions per group
-agent-deck list -json | jq 'group_by(.group) | map({group: .[0].group, count: length})'
-```
-
-## tmux Status Line
-
-```bash
-# Add to ~/.tmux.conf
-set -g status-right '#(agent-deck status -q) waiting | %H:%M'
-```
+1. **Avoid external polling agents** - They can send messages that interfere with target sessions
+2. **Use on-demand checks** - Let user request output when ready
+3. **Flags before arguments** - `session show --json name` not `session show name --json`

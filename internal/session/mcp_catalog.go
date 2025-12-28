@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -38,6 +39,27 @@ func waitForSocketReady(mcpName string, timeout time.Duration) bool {
 	}
 
 	return false
+}
+
+// getExternalSocketPath returns the socket path if an external pool socket exists and is alive
+// This allows CLI commands to use sockets created by the TUI without needing pool initialization
+func getExternalSocketPath(mcpName string) string {
+	socketPath := filepath.Join("/tmp", fmt.Sprintf("agentdeck-mcp-%s.sock", mcpName))
+
+	// Check if socket file exists
+	if _, err := os.Stat(socketPath); os.IsNotExist(err) {
+		return ""
+	}
+
+	// Check if socket is alive (accepting connections)
+	conn, err := net.DialTimeout("unix", socketPath, 500*time.Millisecond)
+	if err != nil {
+		log.Printf("[MCP-POOL] Socket %s exists but not alive: %v", socketPath, err)
+		return ""
+	}
+	conn.Close()
+
+	return socketPath
 }
 
 // WriteMCPJsonFromConfig writes enabled MCPs from config.toml to project's .mcp.json
@@ -86,13 +108,27 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 				// MCP is explicitly excluded from pool - use stdio
 				log.Printf("[MCP-POOL] %s: excluded from pool, using stdio", name)
 			} else if pool == nil {
-				// Pool not initialized - check if we should error or use stdio
+				// Pool not initialized (CLI mode) - try to discover external sockets from TUI
 				config, _ := LoadUserConfig()
-				if config != nil && config.MCPPool.Enabled && !config.MCPPool.FallbackStdio {
-					log.Printf("[MCP-POOL] ✗ %s: pool enabled but not initialized - fallback disabled, skipping MCP", name)
-					return fmt.Errorf("MCP '%s' cannot start: pool enabled but not initialized (fallback_to_stdio=false)", name)
+				if config != nil && config.MCPPool.Enabled {
+					// Try to find existing socket from TUI's pool
+					if socketPath := getExternalSocketPath(name); socketPath != "" {
+						mcpConfig.MCPServers[name] = MCPServerConfig{
+							Command: "nc",
+							Args:    []string{"-U", socketPath},
+						}
+						log.Printf("[MCP-POOL] ✓ %s: discovered external socket %s", name, socketPath)
+						continue
+					}
+					// Socket not found - check fallback policy
+					if !config.MCPPool.FallbackStdio {
+						log.Printf("[MCP-POOL] ✗ %s: pool enabled but socket not found - fallback disabled", name)
+						return fmt.Errorf("MCP '%s' cannot start: pool enabled but socket not found (fallback_to_stdio=false)", name)
+					}
+					log.Printf("[MCP-POOL] ⚠️ %s: socket not found, falling back to stdio", name)
+				} else {
+					log.Printf("[MCP-POOL] %s: pool disabled, using stdio", name)
 				}
-				log.Printf("[MCP-POOL] %s: pool not initialized, using stdio", name)
 			}
 
 			// Fallback to stdio mode (pool disabled, excluded, or socket failed with fallback enabled)
@@ -187,13 +223,27 @@ func WriteGlobalMCP(enabledNames []string) error {
 				// MCP is explicitly excluded from pool - use stdio
 				log.Printf("[MCP-POOL] Global %s: excluded from pool, using stdio", name)
 			} else if pool == nil {
-				// Pool not initialized - check if we should error or use stdio
+				// Pool not initialized (CLI mode) - try to discover external sockets from TUI
 				config, _ := LoadUserConfig()
-				if config != nil && config.MCPPool.Enabled && !config.MCPPool.FallbackStdio {
-					log.Printf("[MCP-POOL] ✗ Global %s: pool enabled but not initialized - fallback disabled", name)
-					return fmt.Errorf("MCP '%s' cannot start: pool enabled but not initialized (fallback_to_stdio=false)", name)
+				if config != nil && config.MCPPool.Enabled {
+					// Try to find existing socket from TUI's pool
+					if socketPath := getExternalSocketPath(name); socketPath != "" {
+						mcpServers[name] = MCPServerConfig{
+							Command: "nc",
+							Args:    []string{"-U", socketPath},
+						}
+						log.Printf("[MCP-POOL] ✓ Global %s: discovered external socket %s", name, socketPath)
+						continue
+					}
+					// Socket not found - check fallback policy
+					if !config.MCPPool.FallbackStdio {
+						log.Printf("[MCP-POOL] ✗ Global %s: pool enabled but socket not found - fallback disabled", name)
+						return fmt.Errorf("MCP '%s' cannot start: pool enabled but socket not found (fallback_to_stdio=false)", name)
+					}
+					log.Printf("[MCP-POOL] ⚠️ Global %s: socket not found, falling back to stdio", name)
+				} else {
+					log.Printf("[MCP-POOL] Global %s: pool disabled, using stdio", name)
 				}
-				log.Printf("[MCP-POOL] Global %s: pool not initialized, using stdio", name)
 			}
 
 			// Fallback to stdio mode (pool disabled, excluded, or socket failed with fallback enabled)
