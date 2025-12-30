@@ -1309,15 +1309,15 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, tea.Batch(cmd, listenForReloads(h.storageWatcher))
 
 	case statusUpdateMsg:
-		// Clear attach flag - we've returned from the attached session
+	// Clear attach flag - we've returned from the attached session
 		h.isAttaching.Store(false) // Atomic store for thread safety
 
-		// PERFORMANCE FIX: Don't trigger full status update on attach return
-		// The background worker already runs every tick, and we just updated
-		// the attached session's acknowledgment state. Triggering a full update
-		// here would cause 10+ sessions to call CapturePane() blocking.
-		// Skip it to maintain UI responsiveness.
-		// h.triggerStatusUpdate() // REMOVED: causes massive delay
+		// PERFORMANCE FIX: Now safe to trigger status update on attach return
+		// Since AcknowledgeWithSnapshot() no longer calls CapturePane(),
+		// triggerStatusUpdate() won't cause 10+ second delays.
+		// The background worker uses batching (2 sessions per tick),
+		// so this is fast and maintains UI responsiveness.
+		h.triggerStatusUpdate()
 
 		// Skip save during reload to avoid overwriting external changes (CLI)
 		h.reloadMu.Lock()
@@ -2582,11 +2582,8 @@ type attachCmd struct {
 }
 
 func (a attachCmd) Run() error {
-	// Clear screen with synchronized output for atomic rendering (prevents flicker)
-	// Begin sync mode → clear screen → end sync mode ensures single-frame update
-	// Note: isAttaching flag is cleared in the callback after Attach() returns,
-	// before the message is queued to prevent race with View()
-	fmt.Print(syncOutputBegin + clearScreen + syncOutputEnd)
+	// NOTE: Screen clearing is ONLY done in the tea.Exec callback (after Attach returns)
+	// Removing clear screen here prevents double-clearing which corrupts terminal state
 
 	ctx := context.Background()
 	return a.session.Attach(ctx)
