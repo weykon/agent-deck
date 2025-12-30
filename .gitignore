@@ -38,6 +38,9 @@ Thumbs.db
 # Agent Deck data (for development)
 .agent-deck/
 
+# VS Code extensions data
+.serena/
+
 # Personal/local files
 .mcp.json
 .playwright-mcp/
