@@ -2015,10 +2015,6 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		for i, info := range pathInfos {
 			paths[i] = info.path
 		}
-		h.newDialog.SetPathSuggestions(paths)
-
-		// Apply user's preferred default tool from config
-		h.newDialog.SetDefaultTool(session.GetDefaultTool())
 
 		// Auto-select parent group from current cursor position
 		groupPath := session.DefaultGroupName
@@ -2029,14 +2025,22 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				groupPath = item.Group.Path
 				groupName = item.Group.Name
 			} else if item.Type == session.ItemTypeSession {
-				// Use the session's group
+				// Use's session's group
 				groupPath = item.Path
 				if group, exists := h.groupTree.Groups[groupPath]; exists {
 					groupName = group.Name
 				}
 			}
 		}
+
+		// Show dialog first (this sets basic state)
 		h.newDialog.ShowInGroup(groupPath, groupName)
+
+		// Then apply suggestions (must be after ShowInGroup to avoid being cleared)
+		h.newDialog.SetPathSuggestions(paths)
+
+		// Apply user's preferred default tool from config
+		h.newDialog.SetDefaultTool(session.GetDefaultTool())
 		return h, nil
 
 	case "d":

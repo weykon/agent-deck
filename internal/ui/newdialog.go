@@ -268,20 +268,8 @@ func (d *NewDialog) tryCompletePath(currentPath string) bool {
 		return true
 	}
 
-	// Multiple matches: find common prefix and show suggestions
-	commonPrefix := findCommonPrefix(matches)
-	if commonPrefix != prefix {
-		completedPath := filepath.Join(dir, commonPrefix)
-		home, _ := os.UserHomeDir()
-		if home != "" && strings.HasPrefix(completedPath, home) {
-			completedPath = "~" + completedPath[len(home):]
-		}
-		d.pathInput.SetValue(completedPath)
-		d.pathSuggestionSource = "" // Clear suggestions after completion
-		return true
-	}
-
-	// Show multiple matches as suggestions
+	// Multiple matches: always show suggestions list (more intuitive)
+	// Don't complete to common prefix first - show all matches directly
 	d.pathSuggestions = matches
 	d.pathSuggestionCursor = 0
 	d.pathSuggestionOffset = 0
