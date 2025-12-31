@@ -26,6 +26,8 @@ type NewDialog struct {
 	parentGroupName      string
 	pathSuggestions      []string // stores all available path suggestions
 	pathSuggestionCursor int      // tracks selected suggestion in dropdown
+	pathSuggestionSource  string   // "recent" or "autocomplete"
+	pathSuggestionOffset int      // scroll offset for displaying suggestions
 }
 
 // NewNewDialog creates a new NewDialog instance
@@ -82,6 +84,12 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName string) {
 	d.nameInput.SetValue("")
 	d.nameInput.Focus()
 	// Keep commandCursor at previously set default (don't reset to 0)
+
+	// Clear suggestion state when showing dialog
+	d.pathSuggestions = []string{}
+	d.pathSuggestionCursor = 0
+	d.pathSuggestionOffset = 0
+	d.pathSuggestionSource = ""
 }
 
 // SetDefaultTool sets the pre-selected command based on tool name
@@ -119,6 +127,8 @@ func (d *NewDialog) SetSize(width, height int) {
 func (d *NewDialog) SetPathSuggestions(paths []string) {
 	d.pathSuggestions = paths
 	d.pathSuggestionCursor = 0
+	d.pathSuggestionOffset = 0
+	d.pathSuggestionSource = "recent"
 	d.pathInput.SetSuggestions(paths)
 }
 
@@ -196,6 +206,155 @@ func (d *NewDialog) Validate() string {
 	return "" // Valid
 }
 
+// tryCompletePath attempts to autocomplete current path input
+// Returns true if path was completed, false otherwise
+func (d *NewDialog) tryCompletePath(currentPath string) bool {
+	// Expand tilde for path matching
+	searchPath := currentPath
+	if strings.HasPrefix(searchPath, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return false
+		}
+		searchPath = filepath.Join(home, searchPath[2:])
+	} else if searchPath == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return false
+		}
+		searchPath = home
+	}
+
+	// Get directory and prefix
+	dir, prefix := filepath.Split(searchPath)
+	if dir == "" {
+		dir = "."
+	}
+
+	// Read directory entries
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+
+	// Find matches
+	var matches []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, prefix) {
+			matches = append(matches, name)
+		}
+	}
+
+	// No matches
+	if len(matches) == 0 {
+		return false
+	}
+
+	// Single match: auto-complete
+	if len(matches) == 1 {
+		completedPath := filepath.Join(dir, matches[0])
+		// Add trailing slash if it's a directory
+		if info, err := os.Stat(completedPath); err == nil && info.IsDir() {
+			completedPath += "/"
+		}
+		// Convert back to ~ format if in home directory
+		home, _ := os.UserHomeDir()
+		if home != "" && strings.HasPrefix(completedPath, home) {
+			completedPath = "~" + completedPath[len(home):]
+		}
+		d.pathInput.SetValue(completedPath)
+		d.pathSuggestionSource = "" // Clear suggestions after completion
+		return true
+	}
+
+	// Multiple matches: find common prefix and show suggestions
+	commonPrefix := findCommonPrefix(matches)
+	if commonPrefix != prefix {
+		completedPath := filepath.Join(dir, commonPrefix)
+		home, _ := os.UserHomeDir()
+		if home != "" && strings.HasPrefix(completedPath, home) {
+			completedPath = "~" + completedPath[len(home):]
+		}
+		d.pathInput.SetValue(completedPath)
+		d.pathSuggestionSource = "" // Clear suggestions after completion
+		return true
+	}
+
+	// Show multiple matches as suggestions
+	d.pathSuggestions = matches
+	d.pathSuggestionCursor = 0
+	d.pathSuggestionOffset = 0
+	d.pathSuggestionSource = "autocomplete" // Mark as autocomplete source
+	return true
+}
+
+// findCommonPrefix finds the common prefix among strings
+func findCommonPrefix(strs []string) string {
+	if len(strs) == 0 {
+		return ""
+	}
+	if len(strs) == 1 {
+		return strs[0]
+	}
+
+	minLen := len(strs[0])
+	for _, s := range strs[1:] {
+		if len(s) < minLen {
+			minLen = len(s)
+		}
+	}
+
+	prefix := ""
+	for i := 0; i < minLen; i++ {
+		c := strs[0][i]
+		allMatch := true
+		for _, s := range strs[1:] {
+			if s[i] != c {
+				allMatch = false
+				break
+			}
+		}
+		if allMatch {
+			prefix += string(c)
+		} else {
+			break
+		}
+	}
+
+	return prefix
+}
+
+// scrollSuggestionsUp scrolls up through the suggestion list
+func (d *NewDialog) scrollSuggestionsUp() {
+	if len(d.pathSuggestions) == 0 {
+		return
+	}
+	if d.pathSuggestionCursor > 0 {
+		d.pathSuggestionCursor--
+		// If cursor moves above current view, scroll up
+		if d.pathSuggestionCursor < d.pathSuggestionOffset {
+			d.pathSuggestionOffset = d.pathSuggestionCursor
+		}
+	}
+}
+
+// scrollSuggestionsDown scrolls down through the suggestion list
+func (d *NewDialog) scrollSuggestionsDown() {
+	if len(d.pathSuggestions) == 0 {
+		return
+	}
+	if d.pathSuggestionCursor < len(d.pathSuggestions)-1 {
+		d.pathSuggestionCursor++
+		// If cursor moves below current view, scroll down
+		const maxVisible = 10
+		maxOffset := max(0, len(d.pathSuggestions)-maxVisible)
+		if d.pathSuggestionCursor >= d.pathSuggestionOffset+maxVisible {
+			d.pathSuggestionOffset = min(d.pathSuggestionCursor-9, maxOffset)
+		}
+	}
+}
+
 // updateFocus updates which input has focus
 func (d *NewDialog) updateFocus() {
 	d.nameInput.Blur()
@@ -224,10 +383,18 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "tab":
-			// On path field: apply selected suggestion, then move to next field
-			if d.focusIndex == 1 && len(d.pathSuggestions) > 0 {
-				if d.pathSuggestionCursor < len(d.pathSuggestions) {
-					d.pathInput.SetValue(d.pathSuggestions[d.pathSuggestionCursor])
+			// On path field: try path completion first
+			if d.focusIndex == 1 {
+				currentPath := strings.TrimSpace(d.pathInput.Value())
+				completed := d.tryCompletePath(currentPath)
+				if completed {
+					return d, nil
+				}
+				// If no completion, try to use preset suggestions
+				if len(d.pathSuggestions) > 0 {
+					if d.pathSuggestionCursor < len(d.pathSuggestions) {
+						d.pathInput.SetValue(d.pathSuggestions[d.pathSuggestionCursor])
+					}
 				}
 			}
 			// Move to next field
@@ -238,27 +405,43 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 		case "ctrl+n":
 			// Next suggestion (when on path field)
 			if d.focusIndex == 1 && len(d.pathSuggestions) > 0 {
-				d.pathSuggestionCursor = (d.pathSuggestionCursor + 1) % len(d.pathSuggestions)
+				d.scrollSuggestionsDown()
 				return d, nil
 			}
 
 		case "ctrl+p":
 			// Previous suggestion (when on path field)
 			if d.focusIndex == 1 && len(d.pathSuggestions) > 0 {
-				d.pathSuggestionCursor--
-				if d.pathSuggestionCursor < 0 {
-					d.pathSuggestionCursor = len(d.pathSuggestions) - 1
-				}
+				d.scrollSuggestionsUp()
 				return d, nil
 			}
 
 		case "down":
-			// Down always navigates fields
+			// On path field with suggestions: scroll down
+			if d.focusIndex == 1 && len(d.pathSuggestions) > 0 {
+				d.scrollSuggestionsDown()
+				return d, nil
+			}
+			// Otherwise navigate fields
 			d.focusIndex = (d.focusIndex + 1) % 3
 			d.updateFocus()
 			return d, nil
 
-		case "shift+tab", "up":
+		case "up":
+			// On path field with suggestions: scroll up
+			if d.focusIndex == 1 && len(d.pathSuggestions) > 0 {
+				d.scrollSuggestionsUp()
+				return d, nil
+			}
+			// Otherwise navigate fields (shift+tab behavior)
+			d.focusIndex--
+			if d.focusIndex < 0 {
+				d.focusIndex = 2
+			}
+			d.updateFocus()
+			return d, nil
+
+		case "shift+tab":
 			d.focusIndex--
 			if d.focusIndex < 0 {
 				d.focusIndex = 2
@@ -363,7 +546,11 @@ func (d *NewDialog) View() string {
 
 	// Path input
 	if d.focusIndex == 1 {
-		content.WriteString(activeLabelStyle.Render("▶ Path:"))
+		label := "▶ Path:"
+		if len(d.pathSuggestions) > 0 {
+			label += " (Tab: 自动补全)"
+		}
+		content.WriteString(activeLabelStyle.Render(label))
 	} else {
 		content.WriteString(labelStyle.Render("  Path:"))
 	}
@@ -380,17 +567,29 @@ func (d *NewDialog) View() string {
 			Foreground(ColorCyan).
 			Bold(true)
 
-		// Show up to 5 suggestions
-		maxShow := 5
+		// Show up to 10 suggestions (increased from 5)
+		maxShow := 10
 		if len(d.pathSuggestions) < maxShow {
 			maxShow = len(d.pathSuggestions)
 		}
 
+		// Display different titles based on source
+		var title string
+		if d.pathSuggestionSource == "autocomplete" {
+			title = fmt.Sprintf("─ Tab补全 (%d 个匹配) ─", len(d.pathSuggestions))
+		} else {
+			title = fmt.Sprintf("─ 最近路径 (%d 个) ─", len(d.pathSuggestions))
+		}
+
 		content.WriteString("  ")
-		content.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("─ recent paths (Tab: accept, Ctrl+N/P: cycle) ─"))
+		content.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render(title))
 		content.WriteString("\n")
 
-		for i := 0; i < maxShow; i++ {
+		// Calculate display range based on scroll offset
+		startIdx := d.pathSuggestionOffset
+		endIdx := min(startIdx+maxShow, len(d.pathSuggestions))
+
+		for i := startIdx; i < endIdx; i++ {
 			style := suggestionStyle
 			prefix := "    "
 			if i == d.pathSuggestionCursor {
@@ -401,10 +600,26 @@ func (d *NewDialog) View() string {
 			content.WriteString("\n")
 		}
 
+		// Show scroll hints if there are more items
 		if len(d.pathSuggestions) > maxShow {
-			content.WriteString(suggestionStyle.Render(fmt.Sprintf("    ... and %d more", len(d.pathSuggestions)-maxShow)))
-			content.WriteString("\n")
+			if d.pathSuggestionOffset > 0 {
+				content.WriteString(suggestionStyle.Render("    ↑ 向上滚动显示更多"))
+				content.WriteString("\n")
+			}
+			if d.pathSuggestionOffset+maxShow < len(d.pathSuggestions) {
+				remaining := len(d.pathSuggestions) - d.pathSuggestionOffset - maxShow
+				content.WriteString(suggestionStyle.Render(fmt.Sprintf("    ↓ 向下滚动 (还有 %d 个)", remaining)))
+				content.WriteString("\n")
+			}
 		}
+
+		// Display operation hints based on source
+		if d.pathSuggestionSource == "autocomplete" {
+			content.WriteString(suggestionStyle.Render("    Ctrl+N/P 或 ↑↓: 切换  Tab: 选择"))
+		} else {
+			content.WriteString(suggestionStyle.Render("    Ctrl+N/P 或 ↑↓: 切换  Tab: 选择"))
+		}
+		content.WriteString("\n")
 	}
 	content.WriteString("\n")
 
