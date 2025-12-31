@@ -131,6 +131,11 @@ type Home struct {
 	previewCacheMu     sync.RWMutex         // Protects previewCache for thread-safety
 	previewFetchingID  string               // ID currently being fetched (prevents duplicate fetches)
 
+	// Preview debouncing (PERFORMANCE: prevents subprocess spawn on every keystroke)
+	// During rapid navigation, we delay preview fetch by 150ms to let navigation settle
+	pendingPreviewID   string               // Session ID waiting for debounced fetch
+	previewDebounceMu  sync.Mutex           // Protects pendingPreviewID
+
 	// Round-robin status updates (Priority 1A optimization)
 	// Instead of updating ALL sessions every tick, we update batches of 5-10 sessions
 	// This reduces CPU usage by 90%+ while maintaining responsiveness
@@ -171,6 +176,10 @@ type Home struct {
 	// User activity tracking for adaptive status updates
 	// PERFORMANCE: Only update statuses when user is actively interacting
 	lastUserInputTime time.Time // When user last pressed a key
+
+	// Navigation tracking (PERFORMANCE: suspend background updates during rapid navigation)
+	lastNavigationTime time.Time // When user last navigated (up/down/j/k)
+	isNavigating       bool      // True if user is rapidly navigating
 
 	// Cached status counts (invalidated on instance changes)
 	cachedStatusCounts struct {
@@ -230,6 +239,12 @@ type previewFetchedMsg struct {
 	sessionID string
 	content   string
 	err       error
+}
+
+// previewDebounceMsg signals debounce period elapsed for preview fetch
+// PERFORMANCE: Delays preview fetch during rapid navigation
+type previewDebounceMsg struct {
+	sessionID string
 }
 
 // statusUpdateRequest is sent to the background worker with current viewport info
@@ -861,6 +876,22 @@ func (h *Home) fetchPreview(inst *session.Instance) tea.Cmd {
 	}
 }
 
+// fetchPreviewDebounced returns a command that triggers preview fetch after debounce delay
+// PERFORMANCE: Prevents rapid subprocess spawning during keyboard navigation
+// The 150ms delay allows navigation to settle before spawning tmux capture-pane
+func (h *Home) fetchPreviewDebounced(sessionID string) tea.Cmd {
+	const debounceDelay = 150 * time.Millisecond
+
+	h.previewDebounceMu.Lock()
+	h.pendingPreviewID = sessionID
+	h.previewDebounceMu.Unlock()
+
+	return func() tea.Msg {
+		time.Sleep(debounceDelay)
+		return previewDebounceMsg{sessionID: sessionID}
+	}
+}
+
 // getSelectedSession returns the currently selected session, or nil if a group is selected
 func (h *Home) getSelectedSession() *session.Instance {
 	if len(h.flatItems) == 0 || h.cursor >= len(h.flatItems) {
@@ -1346,23 +1377,66 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.previewCacheMu.Unlock()
 		return h, nil
 
+	case previewDebounceMsg:
+		// PERFORMANCE: Debounce period elapsed - check if this fetch is still relevant
+		// If user continued navigating, pendingPreviewID will have changed
+		h.previewDebounceMu.Lock()
+		isPending := h.pendingPreviewID == msg.sessionID
+		if isPending {
+			h.pendingPreviewID = "" // Clear pending state
+		}
+		h.previewDebounceMu.Unlock()
+
+		if !isPending {
+			return h, nil // Superseded by newer navigation
+		}
+
+		// Find session and trigger actual fetch
+		h.instancesMu.RLock()
+		inst := h.instanceByID[msg.sessionID]
+		h.instancesMu.RUnlock()
+
+		if inst != nil {
+			h.previewCacheMu.Lock()
+			needsFetch := h.previewFetchingID != inst.ID
+			if needsFetch {
+				h.previewFetchingID = inst.ID
+			}
+			h.previewCacheMu.Unlock()
+			if needsFetch {
+				return h, h.fetchPreview(inst)
+			}
+		}
+		return h, nil
+
 	case tickMsg:
 		// Auto-dismiss errors after 5 seconds
 		if h.err != nil && !h.errTime.IsZero() && time.Since(h.errTime) > 5*time.Second {
 			h.clearError()
 		}
 
-		// PERFORMANCE: Adaptive status updates - only when user is active
-		// If user hasn't interacted for 2+ seconds, skip status updates.
-		// This prevents background polling during idle periods.
-		const userActivityWindow = 2 * time.Second
-		if !h.lastUserInputTime.IsZero() && time.Since(h.lastUserInputTime) < userActivityWindow {
-			// User is active - trigger status updates
-			tmux.RefreshExistingSessions()
-			h.triggerStatusUpdate()
-		} else {
-			// User idle - only refresh cache lightly (no status updates)
-			tmux.RefreshExistingSessions()
+		// PERFORMANCE: Detect when navigation has settled (300ms since last up/down)
+		// This allows background updates to resume after rapid navigation stops
+		const navigationSettleTime = 300 * time.Millisecond
+		if h.isNavigating && time.Since(h.lastNavigationTime) > navigationSettleTime {
+			h.isNavigating = false
+		}
+
+		// PERFORMANCE: Skip background updates during rapid navigation
+		// This prevents subprocess spawning while user is scrolling through sessions
+		if !h.isNavigating {
+			// PERFORMANCE: Adaptive status updates - only when user is active
+			// If user hasn't interacted for 2+ seconds, skip status updates.
+			// This prevents background polling during idle periods.
+			const userActivityWindow = 2 * time.Second
+			if !h.lastUserInputTime.IsZero() && time.Since(h.lastUserInputTime) < userActivityWindow {
+				// User is active - trigger status updates
+				tmux.RefreshExistingSessions()
+				h.triggerStatusUpdate()
+			} else {
+				// User idle - only refresh cache lightly (no status updates)
+				tmux.RefreshExistingSessions()
+			}
 		}
 
 		// Update animation frame for launching spinner (8 frames, cycles every tick)
@@ -1692,17 +1766,13 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if h.cursor > 0 {
 			h.cursor--
 			h.syncViewport()
-			// Trigger immediate preview fetch for new selection (mutex-protected)
+			// Track navigation for adaptive background updates
+			h.lastNavigationTime = time.Now()
+			h.isNavigating = true
+			// PERFORMANCE: Debounced preview fetch - waits 150ms for navigation to settle
+			// This prevents spawning tmux subprocess on every keystroke
 			if selected := h.getSelectedSession(); selected != nil {
-				h.previewCacheMu.Lock()
-				needsFetch := h.previewFetchingID != selected.ID
-				if needsFetch {
-					h.previewFetchingID = selected.ID
-				}
-				h.previewCacheMu.Unlock()
-				if needsFetch {
-					return h, h.fetchPreview(selected)
-				}
+				return h, h.fetchPreviewDebounced(selected.ID)
 			}
 		}
 		return h, nil
@@ -1711,17 +1781,13 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if h.cursor < len(h.flatItems)-1 {
 			h.cursor++
 			h.syncViewport()
-			// Trigger immediate preview fetch for new selection (mutex-protected)
+			// Track navigation for adaptive background updates
+			h.lastNavigationTime = time.Now()
+			h.isNavigating = true
+			// PERFORMANCE: Debounced preview fetch - waits 150ms for navigation to settle
+			// This prevents spawning tmux subprocess on every keystroke
 			if selected := h.getSelectedSession(); selected != nil {
-				h.previewCacheMu.Lock()
-				needsFetch := h.previewFetchingID != selected.ID
-				if needsFetch {
-					h.previewFetchingID = selected.ID
-				}
-				h.previewCacheMu.Unlock()
-				if needsFetch {
-					return h, h.fetchPreview(selected)
-				}
+				return h, h.fetchPreviewDebounced(selected.ID)
 			}
 		}
 		return h, nil
@@ -3502,6 +3568,7 @@ func (h *Home) renderItem(b *strings.Builder, item session.Item, selected bool, 
 }
 
 // renderGroupItem renders a group header
+// PERFORMANCE: Uses cached styles from styles.go to avoid allocations
 func (h *Home) renderGroupItem(b *strings.Builder, item session.Item, selected bool, itemIndex int) {
 	group := item.Group
 
@@ -3509,51 +3576,38 @@ func (h *Home) renderGroupItem(b *strings.Builder, item session.Item, selected b
 	// Uses spacingNormal (2 chars) per level for consistent hierarchy visualization
 	indent := strings.Repeat(strings.Repeat(" ", spacingNormal), item.Level)
 
-	// Expand/collapse indicator with filled triangles
-	expandStyle := lipgloss.NewStyle().Foreground(ColorText)
-	expandIcon := expandStyle.Render("▾") // Filled triangle for expanded
+	// Expand/collapse indicator with cached styles
+	expandIcon := GroupExpandStyle.Render("▾") // Filled triangle for expanded
 	if !group.Expanded {
-		expandIcon = expandStyle.Render("▸") // Filled triangle for collapsed
+		expandIcon = GroupExpandStyle.Render("▸") // Filled triangle for collapsed
 	}
 
-	// Group name styling
-	nameStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorCyan)
-	countStyle := lipgloss.NewStyle().Foreground(ColorText)
+	// Group name styling with cached styles
+	nameStyle := GroupNameStyle
+	countStyle := GroupCountStyle
 
 	// Hotkey indicator (subtle, only for root groups, hidden when selected)
 	// Uses pre-computed RootGroupNum from rebuildFlatItems() - O(1) lookup instead of O(n) loop
 	hotkeyStr := ""
 	if item.Level == 0 && !selected {
 		if item.RootGroupNum >= 1 && item.RootGroupNum <= 9 {
-			hotkeyStyle := lipgloss.NewStyle().Foreground(ColorComment)
-			hotkeyStr = hotkeyStyle.Render(fmt.Sprintf("%d·", item.RootGroupNum))
+			hotkeyStr = GroupHotkeyStyle.Render(fmt.Sprintf("%d·", item.RootGroupNum))
 		}
 	}
 
 	if selected {
-		nameStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorBg).
-			Background(ColorAccent)
-		countStyle = lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorAccent)
-		expandIcon = lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorAccent).
-			Render("▾")
+		nameStyle = GroupNameSelStyle
+		countStyle = GroupCountSelStyle
+		expandIcon = GroupExpandSelStyle.Render("▾")
 		if !group.Expanded {
-			expandIcon = lipgloss.NewStyle().
-				Foreground(ColorBg).
-				Background(ColorAccent).
-				Render("▸")
+			expandIcon = GroupExpandSelStyle.Render("▸")
 		}
 	}
 
 	sessionCount := len(group.Sessions)
 	countStr := countStyle.Render(fmt.Sprintf(" (%d)", sessionCount))
 
-	// Status indicators (compact, on same line)
+	// Status indicators (compact, on same line) with cached styles
 	running := 0
 	waiting := 0
 	for _, sess := range group.Sessions {
@@ -3567,10 +3621,10 @@ func (h *Home) renderGroupItem(b *strings.Builder, item session.Item, selected b
 
 	statusStr := ""
 	if running > 0 {
-		statusStr += " " + lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("● %d", running))
+		statusStr += " " + GroupStatusRunning.Render(fmt.Sprintf("● %d", running))
 	}
 	if waiting > 0 {
-		statusStr += " " + lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("◐ %d", waiting))
+		statusStr += " " + GroupStatusWaiting.Render(fmt.Sprintf("◐ %d", waiting))
 	}
 
 	// Build the row: [indent][hotkey][expand] [name](count) [status]
@@ -3591,11 +3645,12 @@ const (
 )
 
 // renderSessionItem renders a single session item for the left panel
+// PERFORMANCE: Uses cached styles from styles.go to avoid allocations
 func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected bool) {
 	inst := item.Session
 
-	// Tree style for connectors - Use ColorText for clear visibility of box-drawing characters
-	treeStyle := lipgloss.NewStyle().Foreground(ColorText)
+	// Use cached tree connector style
+	treeStyle := TreeConnectorStyle
 
 	// Calculate base indentation for parent levels
 	// Level 1 means direct child of root group, Level 2 means child of nested group, etc.
@@ -3631,69 +3686,52 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 		treeConnector = treeLast
 	}
 
-	// Status indicator with consistent sizing
+	// Status indicator with cached styles
 	var statusIcon string
-	var statusColor lipgloss.Color
+	var statusStyle lipgloss.Style
 	switch inst.Status {
 	case session.StatusRunning:
 		statusIcon = "●"
-		statusColor = ColorGreen
+		statusStyle = SessionStatusRunning
 	case session.StatusWaiting:
 		statusIcon = "◐"
-		statusColor = ColorYellow
+		statusStyle = SessionStatusWaiting
 	case session.StatusIdle:
 		statusIcon = "○"
-		statusColor = ColorTextDim
+		statusStyle = SessionStatusIdle
 	case session.StatusError:
 		statusIcon = "✕"
-		statusColor = ColorRed
+		statusStyle = SessionStatusError
 	default:
 		statusIcon = "○"
-		statusColor = ColorTextDim
+		statusStyle = SessionStatusIdle
 	}
-
-	statusStyle := lipgloss.NewStyle().Foreground(statusColor)
 	status := statusStyle.Render(statusIcon)
 
-	// Title styling - add bold/underline for accessibility (colorblind users)
-	titleStyle := lipgloss.NewStyle().Foreground(ColorText)
+	// Title styling with cached styles
+	var titleStyle lipgloss.Style
 	switch inst.Status {
 	case session.StatusRunning, session.StatusWaiting:
-		// Bold for active states (distinguishable without color)
-		titleStyle = titleStyle.Bold(true)
+		titleStyle = SessionTitleActive
 	case session.StatusError:
-		// Underline for error (distinguishable without color)
-		titleStyle = titleStyle.Underline(true)
+		titleStyle = SessionTitleError
+	default:
+		titleStyle = SessionTitleDefault
 	}
 
-	// Tool badge with brand-specific color
-	// Claude=orange, Gemini=purple, Codex=cyan, Aider=red
-	toolColor := ToolColor(inst.Tool)
-	toolStyle := lipgloss.NewStyle().
-		Foreground(toolColor)
+	// Tool badge with cached style
+	toolStyle := GetToolStyle(inst.Tool)
 
 	// Selection indicator
 	selectionPrefix := " "
 	if selected {
-		selectionPrefix = lipgloss.NewStyle().
-			Foreground(ColorAccent).
-			Bold(true).
-			Render("▶")
-		titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorBg).
-			Background(ColorAccent)
-		toolStyle = lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorAccent)
-		statusStyle = lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorAccent)
+		selectionPrefix = SessionSelectionPrefix.Render("▶")
+		titleStyle = SessionTitleSelStyle
+		toolStyle = SessionTitleSelStyle
+		statusStyle = SessionStatusSelStyle
 		status = statusStyle.Render(statusIcon)
 		// Tree connector also gets selection styling
-		treeStyle = lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorAccent)
+		treeStyle = TreeConnectorSelStyle
 		// Rebuild baseIndent with selection styling for sub-sessions
 		if item.IsSubSession && !item.ParentIsLastInGroup {
 			groupIndent := strings.Repeat(treeEmpty, item.Level-2)

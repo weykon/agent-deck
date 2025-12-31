@@ -314,6 +314,67 @@ var (
 					PaddingLeft(0)
 )
 
+// Session List Rendering Styles (PERFORMANCE: cached at package level)
+// These styles are used by renderSessionItem() and renderGroupItem() to avoid
+// repeated allocations on every View() call
+var (
+	// Tree connector styles
+	TreeConnectorStyle  = lipgloss.NewStyle().Foreground(ColorText)
+	TreeConnectorSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
+
+	// Session status indicator styles
+	SessionStatusRunning = lipgloss.NewStyle().Foreground(ColorGreen)
+	SessionStatusWaiting = lipgloss.NewStyle().Foreground(ColorYellow)
+	SessionStatusIdle    = lipgloss.NewStyle().Foreground(ColorTextDim)
+	SessionStatusError   = lipgloss.NewStyle().Foreground(ColorRed)
+	SessionStatusSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
+
+	// Session title styles by state
+	SessionTitleDefault = lipgloss.NewStyle().Foreground(ColorText)
+	SessionTitleActive  = lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+	SessionTitleError   = lipgloss.NewStyle().Foreground(ColorText).Underline(true)
+	SessionTitleSelStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorBg).Background(ColorAccent)
+
+	// Selection indicator
+	SessionSelectionPrefix = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+
+	// Group item styles
+	GroupExpandStyle    = lipgloss.NewStyle().Foreground(ColorText)
+	GroupNameStyle      = lipgloss.NewStyle().Bold(true).Foreground(ColorCyan)
+	GroupCountStyle     = lipgloss.NewStyle().Foreground(ColorText)
+	GroupHotkeyStyle    = lipgloss.NewStyle().Foreground(ColorComment)
+	GroupStatusRunning  = lipgloss.NewStyle().Foreground(ColorGreen)
+	GroupStatusWaiting  = lipgloss.NewStyle().Foreground(ColorYellow)
+
+	// Group selected styles
+	GroupNameSelStyle   = lipgloss.NewStyle().Bold(true).Foreground(ColorBg).Background(ColorAccent)
+	GroupCountSelStyle  = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
+	GroupExpandSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
+)
+
+// ToolStyleCache provides pre-allocated styles for each tool type
+// Avoids repeated lipgloss.NewStyle() calls in renderSessionItem()
+var ToolStyleCache = map[string]lipgloss.Style{
+	"claude":   lipgloss.NewStyle().Foreground(ColorOrange),
+	"gemini":   lipgloss.NewStyle().Foreground(ColorPurple),
+	"codex":    lipgloss.NewStyle().Foreground(ColorCyan),
+	"aider":    lipgloss.NewStyle().Foreground(ColorRed),
+	"cursor":   lipgloss.NewStyle().Foreground(ColorAccent),
+	"shell":    lipgloss.NewStyle().Foreground(ColorText),
+	"opencode": lipgloss.NewStyle().Foreground(ColorText),
+}
+
+// DefaultToolStyle is used when tool is not in cache
+var DefaultToolStyle = lipgloss.NewStyle().Foreground(ColorText)
+
+// GetToolStyle returns cached style for tool or default
+func GetToolStyle(tool string) lipgloss.Style {
+	if style, ok := ToolStyleCache[tool]; ok {
+		return style
+	}
+	return DefaultToolStyle
+}
+
 // Menu Styles
 var (
 	MenuStyle = lipgloss.NewStyle().
