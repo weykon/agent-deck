@@ -58,7 +58,7 @@ changelog:
 
 release:
   github:
-    owner: asheshgoplani
+    owner: weykon
     name: agent-deck
   draft: false
   prerelease: auto
@@ -72,27 +72,27 @@ release:
 
     **Homebrew (recommended):**
     ```bash
-    brew install asheshgoplani/tap/agent-deck
+    brew install weykon/tap/agent-deck
     ```
 
     **Quick Install:**
     ```bash
-    curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/install.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/weykon/agent-deck/main/install.sh | bash
     ```
 
     **Go Install:**
     ```bash
-    go install github.com/asheshgoplani/agent-deck/cmd/agent-deck@v{{.Version}}
+    go install github.com/weykon/agent-deck/cmd/agent-deck@v{{.Version}}
     ```
 
 brews:
   - name: agent-deck
     repository:
-      owner: asheshgoplani
+      owner: weykon
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: "https://github.com/asheshgoplani/agent-deck"
+    homepage: "https://github.com/weykon/agent-deck"
     description: "Terminal session manager for AI coding agents"
     license: "MIT"
     dependencies:

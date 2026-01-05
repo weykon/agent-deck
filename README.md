@@ -7,7 +7,7 @@
 
 **Your AI agent command center**
 
-[![GitHub Stars](https://img.shields.io/github/stars/asheshgoplani/agent-deck?style=for-the-badge&logo=github&color=yellow&labelColor=1a1b26)](https://github.com/asheshgoplani/agent-deck/stargazers)
+[![GitHub Stars](https://img.shields.io/github/stars/weykon/agent-deck?style=for-the-badge&logo=github&color=yellow&labelColor=1a1b26)](https://github.com/weykon/agent-deck/stargazers)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=for-the-badge&logo=go&labelColor=1a1b26)](https://go.dev)
 [![License](https://img.shields.io/badge/License-MIT-9ece6a?style=for-the-badge&labelColor=1a1b26)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20WSL-7aa2f7?style=for-the-badge&labelColor=1a1b26)](https://github.com/asheshgoplani/agent-deck)
@@ -666,7 +666,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 If Agent Deck saves you time, **give us a star!** ⭐ It helps others discover the project.
 
-[![Star History Chart](https://api.star-history.com/svg?repos=asheshgoplani/agent-deck&type=Date)](https://star-history.com/#asheshgoplani/agent-deck&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=weykon/agent-deck&type=Date)](https://star-history.com/#weykon/agent-deck&Date)
 
 ## License
 
