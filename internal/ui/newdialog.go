@@ -277,6 +277,63 @@ func (d *NewDialog) tryCompletePath(currentPath string) bool {
 	return true
 }
 
+// updatePathSuggestions updates file suggestions based on current path input
+func (d *NewDialog) updatePathSuggestions(currentPath string) {
+	// Expand tilde for path matching
+	searchPath := currentPath
+	if strings.HasPrefix(searchPath, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return
+		}
+		searchPath = filepath.Join(home, searchPath[2:])
+	} else if searchPath == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return
+		}
+		searchPath = home + "/"
+	}
+
+	// Get directory and prefix
+	dir, prefix := filepath.Split(searchPath)
+	if dir == "" {
+		dir = "."
+	}
+
+	// Read directory entries
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		d.pathSuggestions = nil
+		d.pathInput.SetSuggestions(nil)
+		return
+	}
+
+	// Find matches (only directories for path completion)
+	var matches []string
+	home, _ := os.UserHomeDir()
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(strings.ToLower(name), strings.ToLower(prefix)) {
+			fullPath := filepath.Join(dir, name)
+			// Convert to ~ format if in home directory
+			if home != "" && strings.HasPrefix(fullPath, home) {
+				fullPath = "~" + fullPath[len(home):]
+			}
+			if entry.IsDir() {
+				fullPath += "/"
+			}
+			matches = append(matches, fullPath)
+		}
+	}
+
+	d.pathSuggestions = matches
+	d.pathSuggestionCursor = 0
+	d.pathSuggestionOffset = 0
+	d.pathSuggestionSource = "autocomplete"
+	d.pathInput.SetSuggestions(matches)
+}
+
 // findCommonPrefix finds the common prefix among strings
 func findCommonPrefix(strs []string) string {
 	if len(strs) == 0 {
@@ -469,7 +526,13 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 	case 0:
 		d.nameInput, cmd = d.nameInput.Update(msg)
 	case 1:
+		oldPath := d.pathInput.Value()
 		d.pathInput, cmd = d.pathInput.Update(msg)
+		newPath := d.pathInput.Value()
+		// When path input changes, update file suggestions
+		if oldPath != newPath && newPath != "" {
+			d.updatePathSuggestions(newPath)
+		}
 	}
 
 	return d, cmd
